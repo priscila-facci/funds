@@ -52,5 +52,6 @@ try:
         
 except Exception as e:
     st.error(f"Error: {str(e)}")
-    st.info("Please ensure 'Funds.xlsx' is in the repository")
+    st.info("Please ensure 'Funds.csv' is in the repository")
+
 
