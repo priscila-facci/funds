@@ -1,80 +1,55 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 
-# Configuração da página
-st.set_page_config(
-    page_title="Fund Portfolio Tree Map",
-    page_icon="📊",
-    layout="wide"
-)
+st.set_page_config(page_title="Fund Portfolio", page_icon="📊", layout="wide")
 
-# Título
 st.title("Fund Portfolio Analysis")
-st.subheader("Tree Map: Sector + Geography")
+st.subheader("Geographic and Sector Distribution")
 
-# Carregar dados
-@st.cache_data
-def load_data():
-    df = pd.read_excel('Funds.xlsx')
-    # Limpar dados - remover linhas com valores vazios nas colunas importantes
-    df = df.dropna(subset=['Geography', 'Fund Sector'])
-    # Pegar apenas fundos com valores comprometidos
-    df = df[df['Amount Committed'].notna()]
-    return df
-
+# Load data
 try:
-    df = load_data()
+    df = pd.read_excel('Funds.xlsx')
+    df_clean = df[df['Amount Committed'].notna()]
     
-    # Criar o Tree Map
-    fig = px.treemap(
-        df,
-        path=['Geography', 'Fund Sector'],  # Hierarquia: Geografia -> Setor
-        values='Amount Committed',
-        title='Investment Distribution by Geography and Sector',
-        color='Geography',
-        color_discrete_map={
-            'US+Canada': '#2E86AB',
-            'LATAM (excl. Brazil)': '#A23B72',
-            'Brazil': '#F18F01',
-            'Emerging Markets (Global)': '#C73E1D',
-            'Europe': '#6A994E'
-        },
-        hover_data={'Amount Committed': ':$,.0f'}
-    )
-    
-    # Ajustar o layout
-    fig.update_traces(
-        textinfo="label+value+percent parent",
-        textfont_size=14
-    )
-    
-    fig.update_layout(
-        height=700,
-        font=dict(size=14)
-    )
-    
-    # Mostrar o gráfico
-    st.plotly_chart(fig, use_container_width=True)
-    
-    # Análise simples embaixo
-    st.markdown("---")
-    col1, col2 = st.columns(2)
-    
+    # Summary metrics
+    col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Total Committed", f"${df['Amount Committed'].sum():,.0f}")
-        st.metric("Number of Funds", len(df))
-    
+        st.metric("Total Committed", f"${df_clean['Amount Committed'].sum()/1_000_000:.1f}M")
     with col2:
-        # Mostrar a mensagem principal
-        st.info("""
-        **Key Finding:**
-        - **US**: Specialist funds (focused sectors)
-        - **LATAM + Brazil**: Mostly generalist funds (Multisector)
-        
-        → *Not a bullseye on your preferred sector 100% of the time in LATAM*
-        """)
+        st.metric("Active Funds", len(df_clean))
+    with col3:
+        st.metric("Pending Investment", len(df[df['Amount Committed'].isna()]))
     
+    st.markdown("---")
+    
+    # Geography breakdown
+    st.subheader("Investment by Geography")
+    geo_summary = df_clean.groupby('Geography')['Amount Committed'].agg(['sum', 'count'])
+    geo_summary.columns = ['Total Investment', 'Number of Funds']
+    geo_summary['Total Investment'] = geo_summary['Total Investment'].apply(lambda x: f"${x/1_000_000:.1f}M")
+    st.dataframe(geo_summary)
+    
+    # Sector breakdown
+    st.subheader("Investment by Sector")
+    sector_summary = df_clean.groupby('Fund Sector')['Amount Committed'].agg(['sum', 'count'])
+    sector_summary.columns = ['Total Investment', 'Number of Funds']
+    sector_summary['Total Investment'] = sector_summary['Total Investment'].apply(lambda x: f"${x/1_000_000:.1f}M")
+    st.dataframe(sector_summary)
+    
+    # Key insight
+    st.markdown("---")
+    st.info("""
+    **Key Finding from the data:**
+    - **US/Canada**: Predominantly specialist funds (Education/FoW, Health, Climate)
+    - **LATAM + Brazil**: Predominantly generalist funds (Multisector)
+    
+    → As noted: "If you want to invest in LATAM funds, it's not going to be a bullseye on your preferred sector 100% of the time"
+    """)
+    
+    # Show raw data
+    with st.expander("View Raw Data"):
+        st.dataframe(df_clean)
+        
 except Exception as e:
-    st.error(f"Error loading data: {str(e)}")
-    st.info("Please make sure 'Funds.xlsx' is in the same folder as app.py")
+    st.error(f"Error: {str(e)}")
+    st.info("Please ensure 'Funds.xlsx' is in the repository")
