@@ -8,7 +8,7 @@ st.subheader("Geographic and Sector Distribution")
 
 # Load data
 try:
-    df = pd.read_excel('Funds.xlsx')
+    df = pd.read_excel('Funds.csv')
     df_clean = df[df['Amount Committed'].notna()]
     
     # Summary metrics
@@ -53,3 +53,4 @@ try:
 except Exception as e:
     st.error(f"Error: {str(e)}")
     st.info("Please ensure 'Funds.xlsx' is in the repository")
+
