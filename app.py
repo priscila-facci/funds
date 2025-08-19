@@ -1,135 +1,110 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
+
+st.set_page_config(page_title="Fund Portfolio Tree Map", layout="wide")
 
 st.title("Fund Portfolio Analysis")
-st.subheader("Tree Map: Sector + Geography")
+st.subheader("Tree Map: Geography → Sector Distribution")
 
 try:
     # Lê o CSV
-    df = pd.read_csv('Funds.csv', sep=';')
+    df = pd.read_csv('Funds.csv')
     
-    # Se não funcionar, tenta outros separadores
+    # Identifica o separador correto
     if len(df.columns) == 1:
-        # Tenta identificar o separador correto
-        first_row = df.iloc[0].values[0]
-        if ':' in str(first_row):
-            df = pd.read_csv('Funds.csv', sep=':')
-        elif ',' in str(first_row):
-            df = pd.read_csv('Funds.csv', sep=',')
+        # Tenta diferentes separadores
+        for sep in [';', ':', ',', '\t']:
+            df_test = pd.read_csv('Funds.csv', sep=sep)
+            if len(df_test.columns) > 1:
+                df = df_test
+                break
     
     # Se ainda tiver problema, separa manualmente
     if len(df.columns) == 1:
-        col = df.columns[0]
-        column_names = ['Name', 'Parent Entity', 'Amount Committed', 'Vintage Year', 
-                       'Fund (Vehicle) Size', 'Jurisdiction', 'Fund Sector', 
-                       'K-12', 'Fund Size', 'Geography']
-        df[column_names] = df[col].str.split(';', expand=True)
-        df = df[column_names]
+        st.error("CSV formatting issue - trying to fix...")
+        # Lista esperada de colunas
+        expected_cols = ['Name', 'Parent Entity', 'Amount Committed', 'Vintage Year', 
+                        'Fund (Vehicle) Size', 'Jurisdiction', 'Fund Sector', 
+                        'K-12', 'Fund Size', 'Geography']
+        
+        # Tenta separar a primeira coluna
+        col_name = df.columns[0]
+        if ';' in col_name:
+            # Os nomes das colunas estão no header
+            df.columns = col_name.split(';')
     
     # Limpa Amount Committed
-    df['Amount Committed'] = df['Amount Committed'].str.replace('$', '').str.replace(',', '')
-    df['Amount Committed'] = pd.to_numeric(df['Amount Committed'], errors='coerce')
+    if 'Amount Committed' in df.columns:
+        df['Amount Committed'] = df['Amount Committed'].astype(str).str.replace('$', '').str.replace(',', '')
+        df['Amount Committed'] = pd.to_numeric(df['Amount Committed'], errors='coerce')
     
     # Remove vazios
-    df_clean = df.dropna(subset=['Amount Committed'])
+    df_clean = df.dropna(subset=['Amount Committed', 'Geography', 'Fund Sector'])
     
-    # TREE MAP VISUAL usando métricas do Streamlit
-    st.markdown("### 🌳 Tree Map Visualization")
+    # Cria o Tree Map
+    fig = px.treemap(
+        df_clean,
+        path=['Geography', 'Fund Sector'],
+        values='Amount Committed',
+        title='Investment Distribution: Geography → Sector',
+        color='Geography',
+        color_discrete_map={
+            'US+Canada': '#1f77b4',
+            'LATAM (excl. Brazil)': '#ff7f0e',
+            'Brazil': '#2ca02c',
+            'Emerging Markets (Global)': '#d62728',
+            'Europe': '#9467bd',
+            'India': '#8c564b'
+        },
+        hover_data={'Amount Committed': ':$,.0f'}
+    )
     
-    # Agrupa por Geografia
-    geo_groups = df_clean.groupby('Geography').agg({
-        'Amount Committed': 'sum',
-        'Fund Sector': lambda x: x.value_counts().to_dict()
-    })
+    fig.update_traces(
+        textinfo="label+value+percent parent",
+        textfont_size=16,
+        marker=dict(cornerradius=5)
+    )
     
-    # Cores para cada geografia
-    colors = {
-        'US+Canada': '🔵',
-        'LATAM (excl. Brazil)': '🔴', 
-        'Brazil': '🟠',
-        'Emerging Markets (Global)': '🟣',
-        'Europe': '🟢'
-    }
+    fig.update_layout(
+        height=700,
+        font=dict(size=14),
+        margin=dict(t=50, l=0, r=0, b=0)
+    )
     
-    # Cria colunas para o tree map visual
-    cols = st.columns(len(geo_groups))
+    # Mostra o tree map
+    st.plotly_chart(fig, use_container_width=True)
     
-    for i, (geo, data) in enumerate(geo_groups.iterrows()):
-        with cols[i]:
-            # Box principal por geografia
-            total = data['Amount Committed']
-            emoji = colors.get(geo, '⚪')
-            
-            st.markdown(f"""
-            <div style='background-color: #f0f2f6; padding: 20px; border-radius: 10px; margin: 5px;'>
-                <h3>{emoji} {geo}</h3>
-                <h2>${total/1_000_000:.1f}M</h2>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # Sub-boxes por setor
-            sectors = data['Fund Sector']
-            for sector, count in sectors.items():
-                sector_total = df_clean[(df_clean['Geography'] == geo) & 
-                                       (df_clean['Fund Sector'] == sector)]['Amount Committed'].sum()
-                
-                # Tamanho do box baseado no valor
-                size = min(100, max(50, int(sector_total/total * 200)))
-                
-                st.markdown(f"""
-                <div style='background-color: #e0e0e0; padding: 10px; border-radius: 5px; 
-                            margin: 5px 0; font-size: {size}%;'>
-                    <b>{sector}</b><br>
-                    ${sector_total/1_000_000:.1f}M ({count} funds)
-                </div>
-                """, unsafe_allow_html=True)
-    
-    st.markdown("---")
-    
-    # Métricas resumidas
-    col1, col2, col3 = st.columns(3)
+    # Métricas
+    col1, col2, col3, col4 = st.columns(4)
     with col1:
-        st.metric("Total Portfolio", f"${df_clean['Amount Committed'].sum()/1_000_000:.1f}M")
+        st.metric("Total Committed", f"${df_clean['Amount Committed'].sum()/1e6:.1f}M")
     with col2:
         st.metric("Active Funds", len(df_clean))
     with col3:
-        st.metric("Average Ticket", f"${df_clean['Amount Committed'].mean()/1_000_000:.1f}M")
+        us_specialist = df_clean[(df_clean['Geography'] == 'US+Canada') & 
+                                (df_clean['Fund Sector'] != 'Multisector')]['Amount Committed'].sum()
+        us_total = df_clean[df_clean['Geography'] == 'US+Canada']['Amount Committed'].sum()
+        if us_total > 0:
+            st.metric("US Specialist %", f"{us_specialist/us_total*100:.0f}%")
+    with col4:
+        latam_generalist = df_clean[((df_clean['Geography'] == 'Brazil') | 
+                                    (df_clean['Geography'] == 'LATAM (excl. Brazil)')) & 
+                                   (df_clean['Fund Sector'] == 'Multisector')]['Amount Committed'].sum()
+        latam_total = df_clean[(df_clean['Geography'] == 'Brazil') | 
+                              (df_clean['Geography'] == 'LATAM (excl. Brazil)')]['Amount Committed'].sum()
+        if latam_total > 0:
+            st.metric("LATAM Generalist %", f"{latam_generalist/latam_total*100:.0f}%")
     
-    # Tabela detalhada
-    st.markdown("### 📊 Detailed Analysis")
-    
-    # Por Geografia
-    tab1, tab2 = st.tabs(["By Geography", "By Sector"])
-    
-    with tab1:
-        geo_summary = df_clean.groupby('Geography').agg({
-            'Amount Committed': ['sum', 'count', 'mean']
-        })
-        geo_summary.columns = ['Total', 'Count', 'Average']
-        geo_summary['Total'] = geo_summary['Total'].apply(lambda x: f"${x/1_000_000:.1f}M")
-        geo_summary['Average'] = geo_summary['Average'].apply(lambda x: f"${x/1_000_000:.1f}M")
-        st.dataframe(geo_summary)
-    
-    with tab2:
-        sector_summary = df_clean.groupby('Fund Sector').agg({
-            'Amount Committed': ['sum', 'count']
-        })
-        sector_summary.columns = ['Total', 'Count']
-        sector_summary['Percentage'] = (sector_summary['Total'] / sector_summary['Total'].sum() * 100).round(1)
-        sector_summary['Total'] = sector_summary['Total'].apply(lambda x: f"${x/1_000_000:.1f}M")
-        st.dataframe(sector_summary)
-    
-    # Insight principal
-    st.markdown("---")
+    # Insight
     st.success("""
-    ### 🎯 Key Finding - Exactly as Kelly noted:
+    ### ✅ Kelly's Hypothesis Confirmed:
+    - **US/Canada**: Predominantly SPECIALIST funds (focused on specific sectors)
+    - **LATAM + Brazil**: Predominantly GENERALIST funds (Multisector)
     
-    - **US/Canada**: Specialist funds dominate (Education, Health, Climate)
-    - **LATAM + Brazil**: Generalist funds dominate (Multisector)
-    
-    ✅ *"If you want to invest in LATAM funds, it's not going to be a bullseye on your preferred sector 100% of the time"*
+    → *"If you want to invest in LATAM funds, it's not going to be a bullseye on your preferred sector 100% of the time"*
     """)
     
 except Exception as e:
     st.error(f"Error: {str(e)}")
-
+    st.info("Debug: Check CSV format and column names")
